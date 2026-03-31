@@ -11,7 +11,12 @@ const app = new Hono();
 app.use(
   "*",
   cors({
-    origin: ['http://localhost:8081', 'http://localhost:19006', 'https://stagewell-api.railway.app'],
+    origin: [
+      'http://localhost:8081',
+      'http://localhost:19006',
+      'https://stagewell-backend-production.up.railway.app',
+      'https://stagewell-api.railway.app'
+    ],
     credentials: true,
   })
 );
