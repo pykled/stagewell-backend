@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import "./env";
 import { sampleRouter } from "./routes/sample";
 import { revenuecatWebhookRouter } from "./routes/webhook-revenuecat";
+import { authGmailRouter } from "./routes/auth-gmail";
 import { logger } from "hono/logger";
 
 const app = new Hono();
@@ -30,6 +31,7 @@ app.get("/health", (c) => c.json({ status: "ok" }));
 // Routes
 app.route("/api/sample", sampleRouter);
 app.route("/api/webhooks/revenuecat", revenuecatWebhookRouter);
+app.route("/api/auth/gmail", authGmailRouter);
 
 const port = Number(process.env.PORT) || 3000;
 

@@ -19,6 +19,12 @@ const envSchema = z.object({
   // under Project Settings → Webhooks → Authorization header.
   // Add as REVENUECAT_WEBHOOK_SECRET in the Vibecode ENV tab.
   REVENUECAT_WEBHOOK_SECRET: z.string().optional(),
+
+  // Google OAuth 2.0 — for Gmail integration
+  // Create credentials at https://console.cloud.google.com/apis/credentials
+  // Add to Railway ENV as GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 });
 
 /**
