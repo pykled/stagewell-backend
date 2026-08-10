@@ -8,16 +8,16 @@ const envSchema = z.object({
   // Server Configuration
   PORT: z.string().optional().default("3000"),
   NODE_ENV: z.string().optional(),
-  BACKEND_URL: z.url("BACKEND_URL must be a valid URL").default("http://localhost:3000"), // Set via the Vibecode enviroment at run-time
+  BACKEND_URL: z.url("BACKEND_URL must be a valid URL").default("http://localhost:3000"),
 
   // Supabase — used by the webhook handler to write to the DB with service-role privileges.
-  // Add these in the Vibecode ENV tab (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY).
+  // Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Railway environment variables.
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
 
   // RevenueCat webhook secret — must match the value configured in the RC dashboard
   // under Project Settings → Webhooks → Authorization header.
-  // Add as REVENUECAT_WEBHOOK_SECRET in the Vibecode ENV tab.
+  // Set as REVENUECAT_WEBHOOK_SECRET in Railway environment variables.
   REVENUECAT_WEBHOOK_SECRET: z.string().optional(),
 
   // Google OAuth 2.0 — for Gmail integration
