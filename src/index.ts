@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import "./env";
-import { sampleRouter } from "./routes/sample";
 import { revenuecatWebhookRouter } from "./routes/webhook-revenuecat";
-import { authGmailRouter } from "./routes/auth-gmail";
+import { stageRouter } from "./routes/stage";
+import { pagesRouter } from "./routes/pages";
 import { logger } from "hono/logger";
 
 const app = new Hono();
@@ -29,13 +29,15 @@ app.use("*", logger());
 app.get("/health", (c) => c.json({ status: "ok" }));
 
 // Routes
-app.route("/api/sample", sampleRouter);
 app.route("/api/webhooks/revenuecat", revenuecatWebhookRouter);
-app.route("/api/auth/gmail", authGmailRouter);
+app.route("/api/stage", stageRouter);
+app.route("/", pagesRouter); // GET /privacy, GET /terms, GET /contact
 
 const port = Number(process.env.PORT) || 3000;
 
 export default {
   port,
   fetch: app.fetch,
+  // Staged photos arrive as multipart; allow generous bodies (Bun default is 128 MB).
+  maxRequestBodySize: 32 * 1024 * 1024,
 };
