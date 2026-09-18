@@ -12,6 +12,10 @@
  *   {userId}/images/{imageId}/before.jpg      source photo as sent to Gemini   → images row `{imageId}_original`
  *   {userId}/images/{imageId}/after.{png|jpg} Gemini output, NEVER watermarked → images row `{imageId}_full`
  *
+ * The `full` row also carries `original_path` (= the before object path) so a
+ * single row describes the whole room; the `_original` row is kept for the
+ * installed clients that list variants.
+ *
  * The legacy client layout `{userId}/{listingId|null}/{imageId}/{thumb,full,original}.jpg`
  * is untouched; rows point at whichever path holds the bytes.
  *
@@ -181,6 +185,7 @@ export async function persistStagedImage(admin: Admin, input: PersistInput): Pro
       user_id: input.userId,
       listing_id: input.listingId,
       storage_path: beforePath,
+      original_path: null,
       variant: "original",
       bytes: input.before.buf.length,
       room_type: input.roomType,
@@ -197,6 +202,8 @@ export async function persistStagedImage(admin: Admin, input: PersistInput): Pro
       user_id: input.userId,
       listing_id: input.listingId,
       storage_path: afterPath,
+      // Before image path on the after row: one row describes the whole room.
+      original_path: beforePath,
       variant: "full",
       bytes: input.after.buf.length,
       room_type: input.roomType,
@@ -245,12 +252,19 @@ export async function persistStagedImage(admin: Admin, input: PersistInput): Pro
 export async function loadStoredImage(admin: Admin, userId: string, imageId: string): Promise<StoredImage | null> {
   const { data, error } = await admin
     .from("images")
-    .select("id,variant,storage_path,listing_id,pending_delete")
+    .select("id,variant,storage_path,original_path,listing_id,pending_delete")
     .eq("user_id", userId)
     .in("id", [imageRowId(imageId, "full"), imageRowId(imageId, "original")]);
   if (error || !data || data.length === 0) return null;
 
-  type Row = { id: string; variant: string; storage_path: string; listing_id: string | null; pending_delete: boolean };
+  type Row = {
+    id: string;
+    variant: string;
+    storage_path: string;
+    original_path: string | null;
+    listing_id: string | null;
+    pending_delete: boolean;
+  };
   const rows = data as Row[];
   const full = rows.find((r) => r.variant === "full");
   if (!full || full.pending_delete) return null;
@@ -265,7 +279,7 @@ export async function loadStoredImage(admin: Admin, userId: string, imageId: str
     imageId,
     base64: buf.toString("base64"),
     mimeType: blob.type || (full.storage_path.endsWith(".png") ? "image/png" : "image/jpeg"),
-    beforePath: original?.storage_path ?? null,
+    beforePath: original?.storage_path ?? full.original_path ?? null,
     afterPath: full.storage_path,
     listingId: full.listing_id,
   };

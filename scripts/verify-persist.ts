@@ -110,11 +110,23 @@ try {
   wrote.objects.push(result.beforePath, result.afterPath);
   wrote.rows.push(imageRowId(imageId, "original"), imageRowId(imageId, "full"));
 
-  const { data: rows } = await admin.from("images").select("id,variant,storage_path,listing_id,bytes,expires_at").in("id", wrote.rows);
+  const { data: rows } = await admin
+    .from("images")
+    .select("id,variant,storage_path,original_path,listing_id,bytes,expires_at")
+    .in("id", wrote.rows);
   console.log("rows:", JSON.stringify(rows));
   if (!rows || rows.length !== 2) throw new Error("expected 2 rows");
   if (rows.some((r: { listing_id: string | null }) => r.listing_id !== listingId)) throw new Error("listing_id not set");
   if (rows.some((r: { expires_at: string | null }) => r.expires_at !== null)) throw new Error("expires_at should be null");
+  type VerifyRow = { variant: string; storage_path: string; original_path: string | null };
+  const fullRow = (rows as VerifyRow[]).find((r) => r.variant === "full");
+  const origRow = (rows as VerifyRow[]).find((r) => r.variant === "original");
+  if (!fullRow || fullRow.storage_path !== result.afterPath) throw new Error("full row missing / wrong storage_path");
+  if (fullRow.original_path !== result.beforePath) throw new Error("full row original_path should be the before path");
+  if (!origRow || origRow.storage_path !== result.beforePath || origRow.original_path !== null) {
+    throw new Error("original row missing / wrong paths");
+  }
+  console.log("full.original_path = before path ✓");
 
   const { data: objs } = await admin.storage.from("stagewell").list(`${userId}/images/${imageId}`);
   console.log("objects:", (objs ?? []).map((o) => o.name).join(", "));
