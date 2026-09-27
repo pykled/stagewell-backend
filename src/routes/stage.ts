@@ -229,7 +229,13 @@ stageRouter.post("/", async (c) => {
     return c.json({ error: "not_configured", message: "Staging service is not configured" }, 503);
   }
 
-  const user = await verifyAccessToken(token);
+  let user: { id: string; email: string | null } | null;
+  try {
+    user = await verifyAccessToken(token);
+  } catch (authErr) {
+    console.error("[Stage] Auth service error during token verification:", authErr);
+    return c.json({ error: "server_error", message: "Auth service temporarily unavailable. Please try again." }, 503);
+  }
   if (!user) return c.json({ error: "unauthorized", message: "Invalid or expired token" }, 401);
 
   // ── 2. Body size gate before buffering anything ───────────────────────────
