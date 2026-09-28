@@ -26,7 +26,7 @@ app.use(
 app.use("*", logger());
 
 // Health check endpoint
-app.get("/health", (c) => c.json({ status: "ok" }));
+app.get("/health", (c) => c.json({ status: "ok", build: "c44a103" }));
 
 // Routes
 app.route("/api/webhooks/revenuecat", revenuecatWebhookRouter);
