@@ -41,6 +41,7 @@ export async function verifyAccessToken(
     // 4xx auth errors (invalid/expired token) → return null so caller sends 401.
     // 5xx / network errors → throw so caller sends 503, not a misleading 401.
     const status = (error as { status?: number }).status;
+    console.error(`[Auth] token verification failed: status=${status} name=${error.name} msg=${error.message}`);
     if (status !== undefined && status >= 500) {
       throw new Error(`Supabase auth service error (${status}): ${error.message}`);
     }

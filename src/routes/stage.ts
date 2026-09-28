@@ -222,6 +222,8 @@ stageRouter.post("/", async (c) => {
   const authHeader = c.req.header("Authorization") ?? "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!token) return c.json({ error: "unauthorized", message: "Missing bearer token" }, 401);
+  // Log token prefix for debugging (never log full token)
+  console.log(`[Stage] auth token prefix: ${token.substring(0, 20)}... len=${token.length}`);
 
   const admin = getSupabaseAdmin();
   if (!admin || !env.GEMINI_API_KEY) {
