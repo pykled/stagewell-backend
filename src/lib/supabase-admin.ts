@@ -3,6 +3,30 @@ import { env } from "../env";
 
 let cached: SupabaseClient | null | undefined;
 
+// Public anon key — safe to hardcode (already embedded in every app build).
+// Used only for auth.getUser() so token verification is independent of whether
+// the service-role key in Railway is correctly configured.
+const SUPABASE_URL_FALLBACK = "https://gkhpqkgzukfgssegzljg.supabase.co";
+const SUPABASE_ANON_KEY_FALLBACK =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdraHBxa2d6dWtmZ3NzZWd6bGpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk4OTQyMjUsImV4cCI6MjA4NTQ3MDIyNX0.wdyV67oZB8pdlGps8tG19_HhseGhvJEVPo23IsEAAI8";
+
+let cachedAuthVerifyClient: SupabaseClient | undefined;
+
+/**
+ * Lightweight Supabase client used only for auth.getUser() token verification.
+ * Uses the public anon key (already in every app bundle) so it works even if
+ * SUPABASE_SERVICE_ROLE_KEY is misconfigured in the hosting environment.
+ */
+function getAuthVerifyClient(): SupabaseClient {
+  if (!cachedAuthVerifyClient) {
+    const url = env.SUPABASE_URL ?? SUPABASE_URL_FALLBACK;
+    cachedAuthVerifyClient = createClient(url, SUPABASE_ANON_KEY_FALLBACK, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return cachedAuthVerifyClient;
+}
+
 /**
  * Service-role Supabase client (bypasses RLS). Returns null when the backend is
  * running without Supabase credentials (local dev / preview).
@@ -25,7 +49,8 @@ export function getSupabaseAdmin(): SupabaseClient | null {
 
 /**
  * Verify a Supabase access token (signature + expiry) and return the user.
- * Uses the admin client's auth endpoint so the JWT secret never has to live here.
+ * Uses a dedicated auth-verify client (anon key) so this call succeeds regardless
+ * of whether the service-role key in the hosting environment is correct.
  *
  * Returns null on auth rejection (invalid/expired token).
  * Throws on Supabase service errors so the caller can return 503 rather than
@@ -34,9 +59,8 @@ export function getSupabaseAdmin(): SupabaseClient | null {
 export async function verifyAccessToken(
   token: string,
 ): Promise<{ id: string; email: string | null } | null> {
-  const admin = getSupabaseAdmin();
-  if (!admin) return null;
-  const { data, error } = await admin.auth.getUser(token);
+  const client = getAuthVerifyClient();
+  const { data, error } = await client.auth.getUser(token);
   if (error) {
     // 4xx auth errors (invalid/expired token) → return null so caller sends 401.
     // 5xx / network errors → throw so caller sends 503, not a misleading 401.
