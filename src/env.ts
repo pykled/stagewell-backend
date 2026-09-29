@@ -38,6 +38,13 @@ const envSchema = z.object({
   STAGE_MAX_INFLIGHT_PER_USER: z.string().regex(/^\d+$/).catch("5"),
   /** Bucket where finished generations are kept so a replayed request_id can be served without regenerating. */
   STAGE_OUTPUT_BUCKET: z.string().min(1).catch("stagewell"),
+
+  // Smartlead reply webhook → #stagewell ping. Webhook URL preferred; bot token is the fallback.
+  DISCORD_WEBHOOK_URL: z.string().url().optional().catch(undefined),
+  DISCORD_BOT_TOKEN: z.string().optional(),
+  DISCORD_STAGEWELL_CHANNEL_ID: z.string().regex(/^\d+$/).catch("1475367779896131797"),
+  /** When set, Smartlead must call /api/smartlead/reply?secret=<value>. */
+  SMARTLEAD_WEBHOOK_SECRET: z.string().optional(),
 });
 
 /**

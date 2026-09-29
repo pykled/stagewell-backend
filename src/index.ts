@@ -4,6 +4,8 @@ import "./env";
 import { revenuecatWebhookRouter } from "./routes/webhook-revenuecat";
 import { stageRouter } from "./routes/stage";
 import { pagesRouter } from "./routes/pages";
+import { listingPageRouter } from "./routes/listing-page";
+import { smartleadRouter } from "./routes/webhook-smartlead";
 import { logger } from "hono/logger";
 
 const app = new Hono();
@@ -26,11 +28,13 @@ app.use(
 app.use("*", logger());
 
 // Health check endpoint
-app.get("/health", (c) => c.json({ status: "ok", build: "c44a103" }));
+app.get("/health", (c) => c.json({ status: "ok", build: "listing-page+smartlead" }));
 
 // Routes
 app.route("/api/webhooks/revenuecat", revenuecatWebhookRouter);
 app.route("/api/stage", stageRouter);
+app.route("/api/smartlead", smartleadRouter); // POST /api/smartlead/reply
+app.route("/l", listingPageRouter); // GET /l/:listingId — public shareable listing page
 app.route("/", pagesRouter); // GET /privacy, GET /terms, GET /contact
 
 const port = Number(process.env.PORT) || 3000;
