@@ -135,6 +135,11 @@ ${ogImage ? `<meta property="og:image" content="${esc(ogImage)}">
   .empty { padding: 48px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 16px; }
   footer { margin-top: 40px; color: var(--muted); font-size: 13px; text-align: center; }
   footer a { color: var(--accent); text-decoration: none; }
+  .demo-badge { display: inline-block; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; margin-bottom: 10px; }
+  .cta-block { margin-top: 40px; text-align: center; padding: 32px 20px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+  .cta-block p { color: var(--muted); font-size: 16px; margin: 0 0 16px; }
+  .cta-btn { display: inline-block; background: var(--accent); color: #fff; text-decoration: none; padding: 14px 28px; border-radius: 12px; font-size: 16px; font-weight: 600; letter-spacing: .01em; }
+  .cta-btn:hover { opacity: .9; }
 </style>
 </head>
 <body>
@@ -163,11 +168,97 @@ function notFound(): string {
   });
 }
 
+interface DemoImagePair {
+  roomType: string;
+  style: string;
+  afterPath: string;
+  beforePath: string;
+}
+
+async function loadDemoPairs(): Promise<DemoImagePair[]> {
+  const admin = getSupabaseAdmin();
+  if (!admin) return [];
+  const { data, error } = await admin
+    .from("images")
+    .select("id,storage_path,original_path,room_type,style")
+    .eq("variant", "full")
+    .not("original_path", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error || !data?.length) return [];
+  const seen = new Set<string>();
+  const pairs: DemoImagePair[] = [];
+  for (const row of data as { id: string; storage_path: string; original_path: string; room_type: string; style: string }[]) {
+    if (!seen.has(row.room_type) && pairs.length < 3) {
+      seen.add(row.room_type);
+      pairs.push({ roomType: row.room_type, style: row.style, afterPath: row.storage_path, beforePath: row.original_path });
+    }
+  }
+  return pairs;
+}
+
+async function renderDemoPage(base: string): Promise<string> {
+  const pairs = await loadDemoPairs();
+  const admin = getSupabaseAdmin();
+  let figures = "";
+  if (admin && pairs.length) {
+    const paths = pairs.flatMap((p) => [p.afterPath, p.beforePath]);
+    const { data: signed } = await admin.storage.from(env.STAGE_OUTPUT_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL_S);
+    const urlMap = new Map((signed ?? []).map((item) => [item.path, item.signedUrl]));
+    figures = pairs
+      .map((p, i) => {
+        const afterUrl = urlMap.get(p.afterPath);
+        const beforeUrl = urlMap.get(p.beforePath);
+        if (!afterUrl || !beforeUrl) return "";
+        const alt = `${label(p.roomType)} staged in ${label(p.style)} style`;
+        const caption = `<figcaption><b>${esc(label(p.roomType))}</b><span>${esc(label(p.style))}</span></figcaption>`;
+        return `<figure>
+  <div class="ba">
+    <img src="${esc(afterUrl)}" alt="${esc(alt)}" loading="${i ? "lazy" : "eager"}">
+    <img class="before" src="${esc(beforeUrl)}" alt="${esc(label(p.roomType))} before staging" loading="${i ? "lazy" : "eager"}">
+    <span class="tag l">BEFORE</span><span class="tag r">AFTER</span>
+    <div class="handle"></div>
+    <input type="range" min="0" max="100" value="50" aria-label="Drag to compare before and after">
+  </div>
+  ${caption}
+</figure>`;
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  const body = `<header>
+  <div class="demo-badge">Live demo</div>
+  <div class="brand">Stagewell</div>
+  <h1>See what AI virtual staging looks like</h1>
+  <p class="sub">Real photos staged with Stagewell — drag to compare before and after</p>
+</header>
+${figures ? `<div class="rooms">${figures}</div>` : `<div class="empty">Demo images are loading — check back in a moment.</div>`}
+<div class="cta-block">
+  <p>Stage your own listings in minutes</p>
+  <a class="cta-btn" href="https://apps.apple.com/app/stagewell/id6739063294">Download Stagewell — Free</a>
+</div>`;
+
+  return shell({
+    title: "Virtual Staging Demo · Stagewell",
+    description: "See AI virtual staging in action. Real before-and-after photos from Stagewell — drag the slider to compare.",
+    url: `${base}/demo`,
+    body,
+  });
+}
+
 const listingPageRouter = new Hono();
+
+listingPageRouter.get("/demo", async (c) => {
+  const base = new URL(c.req.url).origin.replace(/^http:\/\/(?!localhost)/, "https://");
+  c.header("Cache-Control", "public, max-age=300");
+  return c.html(await renderDemoPage(base));
+});
 
 listingPageRouter.get("/:listingId", async (c) => {
   const listingId = c.req.param("listingId").toLowerCase();
-  if (!isUuid(listingId)) return c.html(notFound(), 404);
+  const base = new URL(c.req.url).origin.replace(/^http:\/\/(?!localhost)/, "https://");
+  if (!isUuid(listingId)) return c.html(await renderDemoPage(base), 200);
 
   const admin = getSupabaseAdmin();
   if (!admin) return c.html(notFound(), 503);
@@ -181,13 +272,12 @@ listingPageRouter.get("/:listingId", async (c) => {
     console.error(`[ListingPage] listing read failed ${listingId}: ${error.message}`);
     return c.html(notFound(), 503);
   }
-  if (!listing) return c.html(notFound(), 404);
+  if (!listing) return c.html(await renderDemoPage(base), 200);
 
   const rows = await loadRows(listingId);
   if (rows === null) return c.html(notFound(), 503);
   const rooms = roomsFrom(rows);
 
-  const base = new URL(c.req.url).origin.replace(/^http:\/\/(?!localhost)/, "https://");
   const pageUrl = `${base}/l/${listingId}`;
   const img = (r: Room, kind: "before" | "after") => `/l/${listingId}/img/${encodeURIComponent(r.imageId)}/${kind}`;
   const title = (listing.title as string)?.trim() || "Staged listing";
@@ -271,4 +361,4 @@ listingPageRouter.get("/:listingId/img/:imageId/:kind", async (c) => {
   return c.redirect(signed.signedUrl, 302);
 });
 
-export { listingPageRouter };
+export { listingPageRouter, renderDemoPage };
