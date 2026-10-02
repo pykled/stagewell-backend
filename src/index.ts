@@ -4,7 +4,7 @@ import "./env";
 import { revenuecatWebhookRouter } from "./routes/webhook-revenuecat";
 import { stageRouter } from "./routes/stage";
 import { pagesRouter } from "./routes/pages";
-import { listingPageRouter, renderDemoPage } from "./routes/listing-page";
+import { listingPageRouter, renderDemoPage, serveDemoImage } from "./routes/listing-page";
 import { smartleadRouter } from "./routes/webhook-smartlead";
 import { logger } from "hono/logger";
 
@@ -28,7 +28,7 @@ app.use(
 app.use("*", logger());
 
 // Health check endpoint
-app.get("/health", (c) => c.json({ status: "ok", build: "listing-page+smartlead" }));
+app.get("/health", (c) => c.json({ status: "ok", build: "listing-page+smartlead+demo" }));
 
 // Routes
 app.route("/api/webhooks/revenuecat", revenuecatWebhookRouter);
@@ -37,8 +37,9 @@ app.route("/api/smartlead", smartleadRouter); // POST /api/smartlead/reply
 app.get("/demo", async (c) => {
   const base = new URL(c.req.url).origin.replace(/^http:\/\/(?!localhost)/, "https://");
   c.header("Cache-Control", "public, max-age=300");
-  return c.html(await renderDemoPage(base));
+  return c.html(renderDemoPage(base));
 });
+app.get("/demo/img/:file", (c) => serveDemoImage(c.req.param("file")));
 app.route("/l", listingPageRouter); // GET /l/:listingId — public shareable listing page
 app.route("/", pagesRouter); // GET /privacy, GET /terms, GET /contact
 
