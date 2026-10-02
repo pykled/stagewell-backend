@@ -10,6 +10,15 @@ import { logger } from "hono/logger";
 
 const app = new Hono();
 
+const DEMO_HOSTS = new Set(["demo.stagewell.app"]);
+
+/** First hop of a (possibly comma-joined) host header, lowercased, port and trailing dot stripped. */
+export function isDemoHost(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const host = (raw.split(",")[0] ?? "").trim().toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
+  return DEMO_HOSTS.has(host);
+}
+
 // CORS middleware - validates origin against allowlist
 app.use(
   "*",
@@ -35,6 +44,14 @@ app.route("/api/webhooks/revenuecat", revenuecatWebhookRouter);
 app.route("/api/stage", stageRouter);
 app.route("/api/smartlead", smartleadRouter); // POST /api/smartlead/reply
 app.get("/demo", async (c) => {
+  const base = new URL(c.req.url).origin.replace(/^http:\/\/(?!localhost)/, "https://");
+  c.header("Cache-Control", "public, max-age=300");
+  return c.html(renderDemoPage(base));
+});
+// Bare demo host: https://demo.stagewell.app/ (cold-email CTA) serves the demo at the root.
+// Every other host falls through, so `/` stays a 404 there exactly as before.
+app.get("/", async (c, next) => {
+  if (!isDemoHost(c.req.header("x-forwarded-host") ?? c.req.header("host"))) return next();
   const base = new URL(c.req.url).origin.replace(/^http:\/\/(?!localhost)/, "https://");
   c.header("Cache-Control", "public, max-age=300");
   return c.html(renderDemoPage(base));
