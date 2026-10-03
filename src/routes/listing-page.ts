@@ -19,6 +19,7 @@ import { Hono } from "hono";
 import { getSupabaseAdmin } from "../lib/supabase-admin";
 import { isUuid } from "../lib/storage";
 import { env } from "../env";
+import { renderDemoPage } from "./demo-page";
 
 const SIGNED_URL_TTL_S = 60 * 60;
 const IMAGE_ID_RE = /^[A-Za-z0-9-]{1,100}$/;
@@ -168,75 +169,6 @@ function notFound(): string {
   });
 }
 
-/**
- * Demo pairs are curated static files in public/demo/ (Stagewell's own
- * marketing pair + a room Dillon staged himself). Never query `images` here:
- * that table holds customers' private listing photos and this page is public.
- */
-interface DemoImagePair {
-  roomType: string;
-  style: string;
-  slug: string; // public/demo/{slug}-before.jpg + {slug}-after.jpg
-}
-
-const DEMO_PAIRS: DemoImagePair[] = [
-  { roomType: "living_room", style: "modern", slug: "living" },
-  { roomType: "bedroom", style: "industrial", slug: "loft" },
-];
-const DEMO_FILE_RE = /^(living|loft)-(before|after)\.jpg$/;
-const DEMO_DIR = new URL("../../public/demo/", import.meta.url);
-
-const APP_STORE_URL = "https://apps.apple.com/us/app/stagewell/id6757572170";
-
-function renderDemoPage(base: string): string {
-  const figures = DEMO_PAIRS.map((p, i) => {
-    const afterUrl = `/demo/img/${p.slug}-after.jpg`;
-    const beforeUrl = `/demo/img/${p.slug}-before.jpg`;
-    const alt = `${label(p.roomType)} staged in ${label(p.style)} style`;
-    const caption = `<figcaption><b>${esc(label(p.roomType))}</b><span>${esc(label(p.style))}</span></figcaption>`;
-    return `<figure>
-  <div class="ba">
-    <img src="${esc(afterUrl)}" alt="${esc(alt)}" loading="${i ? "lazy" : "eager"}">
-    <img class="before" src="${esc(beforeUrl)}" alt="${esc(label(p.roomType))} before staging" loading="${i ? "lazy" : "eager"}">
-    <span class="tag l">BEFORE</span><span class="tag r">AFTER</span>
-    <div class="handle"></div>
-    <input type="range" min="0" max="100" value="50" aria-label="Drag to compare before and after">
-  </div>
-  ${caption}
-</figure>`;
-  }).join("\n");
-
-  const body = `<header>
-  <div class="demo-badge">Live demo</div>
-  <div class="brand">Stagewell</div>
-  <h1>See what AI virtual staging looks like</h1>
-  <p class="sub">Real photos staged with Stagewell — drag to compare before and after</p>
-</header>
-<div class="rooms">${figures}</div>
-<div class="cta-block">
-  <p>Stage your own listings in minutes. 3 free stagings, no card required.</p>
-  <a class="cta-btn" href="${APP_STORE_URL}?ct=demo">Download Stagewell — Free</a>
-</div>`;
-
-  return shell({
-    title: "Virtual Staging Demo · Stagewell",
-    description: "See AI virtual staging in action. Real before-and-after photos from Stagewell — drag the slider to compare.",
-    url: `${base}/demo`,
-    ogImage: `${base}/demo/img/living-after.jpg`,
-    body,
-  });
-}
-
-/** GET /demo/img/:file — serves the curated demo photos (allowlisted names only). */
-async function serveDemoImage(file: string): Promise<Response> {
-  if (!DEMO_FILE_RE.test(file)) return new Response("Not found", { status: 404 });
-  const f = Bun.file(new URL(file, DEMO_DIR));
-  if (!(await f.exists())) return new Response("Not found", { status: 404 });
-  return new Response(f, {
-    headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400" },
-  });
-}
-
 const listingPageRouter = new Hono();
 
 listingPageRouter.get("/demo", (c) => {
@@ -351,4 +283,4 @@ listingPageRouter.get("/:listingId/img/:imageId/:kind", async (c) => {
   return c.redirect(signed.signedUrl, 302);
 });
 
-export { listingPageRouter, renderDemoPage, serveDemoImage };
+export { listingPageRouter };

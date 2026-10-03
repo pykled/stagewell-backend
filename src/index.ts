@@ -4,7 +4,8 @@ import "./env";
 import { revenuecatWebhookRouter } from "./routes/webhook-revenuecat";
 import { stageRouter } from "./routes/stage";
 import { pagesRouter } from "./routes/pages";
-import { listingPageRouter, renderDemoPage, serveDemoImage } from "./routes/listing-page";
+import { listingPageRouter } from "./routes/listing-page";
+import { renderDemoPage, serveDemoImage, serveDemoFont } from "./routes/demo-page";
 import { smartleadRouter } from "./routes/webhook-smartlead";
 import { logger } from "hono/logger";
 
@@ -57,6 +58,7 @@ app.get("/", async (c, next) => {
   return c.html(renderDemoPage(base));
 });
 app.get("/demo/img/:file", (c) => serveDemoImage(c.req.param("file")));
+app.get("/demo/fonts/:file", (c) => serveDemoFont(c.req.param("file")));
 app.route("/l", listingPageRouter); // GET /l/:listingId — public shareable listing page
 app.route("/", pagesRouter); // GET /privacy, GET /terms, GET /contact
 
