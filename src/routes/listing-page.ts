@@ -181,9 +181,9 @@ interface DemoImagePair {
 
 const DEMO_PAIRS: DemoImagePair[] = [
   { roomType: "living_room", style: "modern", slug: "living" },
-  { roomType: "bedroom", style: "modern", slug: "bedroom" },
+  { roomType: "bedroom", style: "industrial", slug: "loft" },
 ];
-const DEMO_FILE_RE = /^(living|bedroom)-(before|after)\.jpg$/;
+const DEMO_FILE_RE = /^(living|loft)-(before|after)\.jpg$/;
 const DEMO_DIR = new URL("../../public/demo/", import.meta.url);
 
 const APP_STORE_URL = "https://apps.apple.com/us/app/stagewell/id6757572170";

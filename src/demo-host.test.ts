@@ -50,6 +50,17 @@ describe("GET / by host", () => {
     }
   });
 
+  test("every demo image the page references is served", async () => {
+    const body = await (await get("/", { host: DEMO })).text();
+    const srcs = [...body.matchAll(/src="(\/demo\/img\/[^"]+)"/g)].map((m) => m[1]!);
+    expect(srcs.length).toBe(4);
+    for (const src of srcs) {
+      const res = await get(src, { host: DEMO });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("image/jpeg");
+    }
+  });
+
   test("/demo, /l/demo and /health still work on both hosts", async () => {
     for (const host of [DEMO, RAILWAY]) {
       expect((await get("/demo", { host })).status).toBe(200);
