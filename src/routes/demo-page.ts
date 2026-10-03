@@ -20,15 +20,16 @@ interface DemoPair {
   slug: string; // public/demo/{slug}-before.jpg + {slug}-after.jpg
   room: string;
   style: string;
-  width: number;
+  width: number; // intrinsic size of the "after" file (also the slider's aspect ratio)
   height: number;
+  beforeHeight?: number; // when the "before" file differs by a few px (object-fit: cover hides it)
   note: string; // one plain sentence under the slider
 }
 
 export const DEMO_PAIRS: DemoPair[] = [
-  { slug: "living", room: "Living room", style: "Modern", width: 1200, height: 805, note: "Sectional, rug, shelves and art added. Floor, window and trim untouched." },
+  { slug: "living", room: "Living room", style: "Modern", width: 1200, height: 805, beforeHeight: 800, note: "Sectional, rug, shelves and art added. Floor, window and trim untouched." },
   { slug: "loft", room: "Bedroom", style: "Industrial", width: 1200, height: 1200, note: "Brick, ductwork and the city view are from the original photo." },
-  { slug: "coastal", room: "Bedroom", style: "Coastal", width: 1200, height: 1200, note: "Same window light and wood panel wall; only the furniture is new." },
+  { slug: "coastal", room: "Bedroom", style: "Coastal", width: 1200, height: 1200, note: "Same window light and wood panel wall. The bed, prints and rug are new." },
 ];
 
 const DEMO_FILE_RE = /^(living|loft|coastal)-(before|after)\.jpg$/;
@@ -69,7 +70,7 @@ const CSS = `
   --paper-2: #ECE7DE;
   --ink: #1D1A16;
   --ink-2: #4B463F;
-  --ink-3: #7B746B;
+  --ink-3: #6F685F; /* 4.9:1 on paper, AA for the 13-15px muted text */
   --line: #DCD5CA;
   --accent: #2E5B46;
   --accent-hover: #244A38;
@@ -163,11 +164,12 @@ figcaption .num { font-family: var(--serif); font-style: italic; font-size: 18px
 figcaption b { font-weight: 600; color: var(--ink); }
 figcaption .note { margin-left: auto; text-align: right; max-width: 48%; }
 
+.pair-grid figcaption { flex-wrap: wrap; gap: 6px 12px; }
+.pair-grid figcaption .note { margin-left: 0; text-align: left; max-width: none; flex-basis: 100%; }
+
 /* How it works */
 .how { padding: 72px 0 24px; }
 .how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; padding-top: 12px; }
-.pair-grid figcaption { flex-wrap: wrap; gap: 6px 12px; }
-.pair-grid figcaption .note { margin-left: 0; text-align: left; max-width: none; flex-basis: 100%; }
 .step .n { font-family: var(--serif); font-style: italic; font-size: 30px; line-height: 1; color: var(--ink-3); margin: 0 0 14px; }
 .step h3 { margin: 0 0 8px; font-size: 17px; font-weight: 600; }
 .step p { margin: 0; font-size: 15.5px; color: var(--ink-2); max-width: 32ch; }
@@ -333,8 +335,8 @@ function figure(p: DemoPair, index: number): string {
   const n = String(index + 1).padStart(2, "0");
   return `<figure class="cmp"${eager ? "" : ' data-reveal'}>
   <div class="cmp-stage" data-cmp style="--ar: ${p.width} / ${p.height}">
-    <img class="cmp-after" src="${after}" width="${p.width}" height="${p.height}" alt="${esc(`${p.room} after virtual staging in a ${p.style.toLowerCase()} style`)}" loading="${eager ? "eager" : "lazy"}" decoding="async"${eager ? ' fetchpriority="high"' : ""} draggable="false">
-    <img class="cmp-before" src="${before}" width="${p.width}" height="${p.height}" alt="${esc(`The same ${roomLower}, empty, before staging`)}" loading="${eager ? "eager" : "lazy"}" decoding="async" draggable="false">
+    <img class="cmp-after" src="${after}" width="${p.width}" height="${p.height}" alt="${esc(`${p.room} after virtual staging, ${p.style.toLowerCase()} style`)}" loading="${eager ? "eager" : "lazy"}" decoding="async"${eager ? ' fetchpriority="high"' : ""} draggable="false">
+    <img class="cmp-before" src="${before}" width="${p.width}" height="${p.beforeHeight ?? p.height}" alt="${esc(`The same ${roomLower}, empty, before staging`)}" loading="${eager ? "eager" : "lazy"}" decoding="async" draggable="false">
     <span class="cmp-tag cmp-tag-before" aria-hidden="true">Before</span>
     <span class="cmp-tag cmp-tag-after" aria-hidden="true">After</span>
     <div class="cmp-handle" aria-hidden="true"><span class="cmp-knob">${CHEVRONS}</span></div>
@@ -381,6 +383,7 @@ export function renderDemoPage(base: string): string {
     <a class="wordmark" href="/">Stagewell</a>
     <a class="top-link" href="${APP_STORE_URL}?ct=demo">Free on the App Store</a>
   </header>
+  <main>
 
   <section class="hero">
     <div>
@@ -442,6 +445,7 @@ export function renderDemoPage(base: string): string {
       </div>
     </div>
   </section>
+  </main>
 
   <footer class="foot">
     <span class="copy">© ${year} PYKLE LLC</span>
@@ -471,10 +475,6 @@ export async function serveDemoFont(file: string): Promise<Response> {
   const f = Bun.file(new URL(`fonts/${file}`, DEMO_DIR));
   if (!(await f.exists())) return new Response("Not found", { status: 404 });
   return new Response(f, {
-    headers: {
-      "Content-Type": "font/woff2",
-      "Cache-Control": "public, max-age=31536000, immutable",
-      "Access-Control-Allow-Origin": "*",
-    },
+    headers: { "Content-Type": "font/woff2", "Cache-Control": "public, max-age=31536000, immutable" },
   });
 }
