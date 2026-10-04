@@ -64,16 +64,22 @@ const CSS = `
 }
 @property --pos { syntax: "<percentage>"; inherits: false; initial-value: 50%; }
 
+/*
+ * Palette follows the app's design tokens (app/src/lib/tokens.ts): navy is the
+ * only brand colour, surfaces are warm stone, not white. Contrast on paper:
+ * ink 16.9:1, navy 13.9:1, ink-2 8.5:1, ink-3 5.4:1 (AA for 13-15px text),
+ * white on navy 14.6:1.
+ */
 :root {
   color-scheme: light;
-  --paper: #F5F2EC;
-  --paper-2: #ECE7DE;
-  --ink: #1D1A16;
-  --ink-2: #4B463F;
-  --ink-3: #6F685F; /* 4.9:1 on paper, AA for the 13-15px muted text */
-  --line: #DCD5CA;
-  --accent: #2E5B46;
-  --accent-hover: #244A38;
+  --paper: #FAF9F7;   /* tokens.colors.surface */
+  --paper-2: #F1EEE9; /* tokens.colors.hairlineSoft */
+  --ink: #111827;     /* tokens.colors.ink */
+  --ink-2: #434A57;
+  --ink-3: #5F6775;
+  --line: #E8E4DE;    /* tokens.colors.hairline */
+  --accent: #0F2A44;       /* tokens.colors.navy */
+  --accent-hover: #0A1D30; /* tokens.colors.navyDeep, pressed state */
   --serif: "Instrument Serif", "Instrument Serif Fallback", "Iowan Old Style", Palatino, Georgia, serif;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
@@ -89,6 +95,7 @@ body {
 }
 img { display: block; max-width: 100%; }
 a { color: inherit; }
+::selection { background: var(--accent); color: #fff; }
 .wrap { max-width: var(--measure); margin: 0 auto; padding: 0 var(--gutter); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -96,11 +103,11 @@ a { color: inherit; }
 .top { display: flex; align-items: center; justify-content: space-between; padding: 26px 0 0; }
 .wordmark { font-family: var(--serif); font-size: 28px; line-height: 1; letter-spacing: -0.01em; text-decoration: none; color: var(--ink); }
 .top-link { font-size: 14px; color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--line); padding-bottom: 2px; transition: color 150ms ease, border-color 150ms ease; }
-@media (hover: hover) and (pointer: fine) { .top-link:hover { color: var(--ink); border-color: var(--ink-3); } }
+@media (hover: hover) and (pointer: fine) { .top-link:hover { color: var(--accent); border-color: var(--accent); } }
 
 /* Hero */
 .hero { display: grid; grid-template-columns: 7fr 5fr; gap: 48px; align-items: end; padding: 88px 0 56px; }
-.eyebrow { margin: 0 0 20px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.eyebrow { margin: 0 0 20px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
 h1 {
   margin: 0; font-family: var(--serif); font-weight: 400;
   font-size: clamp(44px, 5.6vw, 76px); line-height: 1.02; letter-spacing: -0.015em; text-wrap: balance;
@@ -122,7 +129,7 @@ h1 em { font-style: italic; color: var(--accent); }
 
 /* Examples */
 .examples { padding: 8px 0 24px; }
-.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; padding: 0 0 20px; border-top: 1px solid var(--line); padding-top: 22px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; padding: 0 0 20px; border-top: 1px solid var(--accent); padding-top: 22px; }
 .section-head h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 30px; letter-spacing: -0.01em; line-height: 1.1; }
 .section-head p { margin: 0; font-size: 15px; color: var(--ink-3); }
 .pair-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 40px; }
@@ -137,7 +144,7 @@ h1 em { font-style: italic; color: var(--accent); }
 .cmp-tag {
   position: absolute; top: 14px; padding: 5px 9px; border-radius: 3px;
   font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--paper); background: rgba(29, 26, 22, 0.66); pointer-events: none;
+  color: var(--paper); background: rgba(15, 42, 68, 0.74); pointer-events: none;
   transition: opacity 200ms ease;
 }
 .cmp-tag-before { left: 14px; } .cmp-tag-after { right: 14px; }
@@ -146,21 +153,21 @@ h1 em { font-style: italic; color: var(--accent); }
 }
 .cmp-handle::before {
   content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px;
-  background: var(--paper); box-shadow: 0 0 0 1px rgba(29, 26, 22, 0.12);
+  background: var(--paper); box-shadow: 0 0 0 1px rgba(15, 42, 68, 0.14);
 }
 .cmp-knob {
   position: absolute; top: 50%; left: 0; width: 44px; height: 44px; transform: translate(-50%, -50%);
-  border-radius: 50%; background: var(--paper); color: var(--ink);
-  box-shadow: 0 1px 2px rgba(29, 26, 22, 0.18), 0 6px 18px rgba(29, 26, 22, 0.18);
+  border-radius: 50%; background: var(--accent); color: var(--paper);
+  box-shadow: 0 0 0 2px var(--paper), 0 1px 2px rgba(15, 42, 68, 0.2), 0 6px 18px rgba(15, 42, 68, 0.22);
   display: grid; place-items: center;
   transition: transform 160ms var(--ease), box-shadow 160ms var(--ease);
 }
 .cmp-knob svg { width: 18px; height: 18px; }
 .cmp-stage.is-dragging .cmp-knob { transform: translate(-50%, -50%) scale(0.94); }
-.cmp-stage.is-focus .cmp-knob { box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--accent); }
+.cmp-stage.is-focus .cmp-knob { background: var(--accent-hover); box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--accent); }
 .cmp-range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }
 figcaption { display: flex; align-items: baseline; gap: 14px; padding: 14px 2px 0; font-size: 15px; color: var(--ink-3); }
-figcaption .num { font-family: var(--serif); font-style: italic; font-size: 18px; color: var(--ink-3); }
+figcaption .num { font-family: var(--serif); font-style: italic; font-size: 18px; color: var(--accent); }
 figcaption b { font-weight: 600; color: var(--ink); }
 figcaption .note { margin-left: auto; text-align: right; max-width: 48%; }
 
@@ -170,23 +177,23 @@ figcaption .note { margin-left: auto; text-align: right; max-width: 48%; }
 /* How it works */
 .how { padding: 72px 0 24px; }
 .how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; padding-top: 12px; }
-.step .n { font-family: var(--serif); font-style: italic; font-size: 30px; line-height: 1; color: var(--ink-3); margin: 0 0 14px; }
+.step .n { font-family: var(--serif); font-style: italic; font-size: 30px; line-height: 1; color: var(--accent); margin: 0 0 14px; }
 .step h3 { margin: 0 0 8px; font-size: 17px; font-weight: 600; }
 .step p { margin: 0; font-size: 15.5px; color: var(--ink-2); max-width: 32ch; }
 
 /* Closing */
 .close { padding: 80px 0 72px; }
-.close-inner { display: grid; grid-template-columns: 7fr 5fr; gap: 48px; align-items: end; border-top: 1px solid var(--line); padding-top: 40px; }
+.close-inner { display: grid; grid-template-columns: 7fr 5fr; gap: 48px; align-items: end; border-top: 1px solid var(--accent); padding-top: 40px; }
 .close h2 { margin: 0 0 16px; font-family: var(--serif); font-weight: 400; font-size: clamp(34px, 4vw, 52px); line-height: 1.05; letter-spacing: -0.015em; text-wrap: balance; }
 .close p { margin: 0; color: var(--ink-2); max-width: 44ch; }
 .close .from { margin-top: 18px; font-size: 14px; color: var(--ink-3); }
-.close .from a { color: var(--ink-2); }
+.close .from a { color: var(--accent); text-decoration-color: rgba(15, 42, 68, 0.4); text-underline-offset: 2px; }
 .close-cta { text-align: left; }
 
 /* Footer */
 .foot { border-top: 1px solid var(--line); padding: 22px 0 40px; display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--ink-3); }
 .foot a { color: var(--ink-3); text-decoration: none; }
-.foot a:hover { color: var(--ink); }
+.foot a:hover { color: var(--accent); }
 .foot .copy { margin-right: auto; }
 
 /* Reveal (only when JS runs and motion is allowed) */
@@ -362,7 +369,7 @@ export function renderDemoPage(base: string): string {
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#F5F2EC">
+<meta name="theme-color" content="#FAF9F7">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Stagewell">
 <meta property="og:title" content="${esc(title)}">
