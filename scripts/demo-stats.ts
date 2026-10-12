@@ -6,8 +6,9 @@
  *   RAILWAY_API_TOKEN=... railway logs --json --since 7d --filter demo_event | bun scripts/demo-stats.ts
  *   bun scripts/demo-stats.ts saved-logs.txt [--since 2026-10-12] [--bots]
  *
- * Accepts raw lines, `railway logs --json` objects (fields flattened or the
- * event JSON inside `message`), or plain text containing the event JSON.
+ * Accepts raw event lines or `railway logs --json` objects (fields flattened
+ * or the event JSON inside `message`); use --json, plain `railway logs` text is
+ * ignored.
  * Bot/scanner traffic is excluded unless --bots is given (its count is shown).
  * Railway only returns logs for one deployment at a time (the latest by
  * default); pass a DEPLOYMENT_ID to `railway logs` to read older ones.
@@ -17,20 +18,17 @@ import type { DemoEvent } from "../src/routes/demo-events";
 
 const STEPS = ["email1", "email2", "email3", "email4", "none", "other"] as const;
 
+// Whole-line JSON only: a request path can echo event-shaped text into the
+// plain-text access log, so substrings of other lines are never trusted.
 export function parseEvent(line: string): DemoEvent | null {
-  const candidates: string[] = [];
   const t = line.trim();
-  if (t.startsWith("{")) candidates.push(t);
-  const i = t.indexOf('{"message":"demo_event"');
-  if (i > 0) candidates.push(t.slice(i));
-  for (const c of candidates) {
-    let o: any;
-    try { o = JSON.parse(c); } catch { continue; }
-    if (o && typeof o.message === "string" && o.message.startsWith("{")) {
-      try { const inner = JSON.parse(o.message); if (inner?.evt) o = inner; } catch {}
-    }
-    if (o && (o.evt === "view" || o.evt === "cta") && typeof o.ct === "string" && typeof o.ts === "string") return o as DemoEvent;
+  if (!t.startsWith("{")) return null;
+  let o: any;
+  try { o = JSON.parse(t); } catch { return null; }
+  if (o && typeof o.message === "string" && o.message.startsWith("{")) {
+    try { const inner = JSON.parse(o.message); if (inner?.evt) o = inner; } catch {}
   }
+  if (o && (o.evt === "view" || o.evt === "cta") && typeof o.ct === "string" && typeof o.ts === "string") return o as DemoEvent;
   return null;
 }
 

@@ -143,7 +143,7 @@ describe("/go", () => {
 });
 
 describe("demo-stats", () => {
-  test("parses raw, railway --json (flattened and nested) and plain-text lines; excludes bots", async () => {
+  test("parses raw and railway --json (flattened and nested) lines; ignores echoed text; excludes bots", async () => {
     await req("/?ct=email1");
     await req("/?ct=email1", { headers: { "user-agent": MAC } });
     await req("/go?ct=email1&cta=hero", { method: "POST" });
@@ -154,12 +154,14 @@ describe("demo-stats", () => {
       raw[0]!,
       JSON.stringify({ ...JSON.parse(raw[1]!), timestamp: "2026-10-12T00:00:00Z" }), // railway --json, attributes flattened
       JSON.stringify({ message: raw[2], timestamp: "x", level: "info" }), // event inside message
-      `2026-10-12 info ${raw[3]}`, // plain text
+      raw[3]!,
       raw[4]!,
+      `<-- GET /${raw[3]}`, // event-shaped text echoed in an access-log path: ignored
       "--> GET /?ct=email1 200 1ms",
       "not json {",
     ];
     expect(parseEvent(mixed[5]!)).toBeNull();
+    expect(parseEvent(mixed[6]!)).toBeNull();
     const { rows, bots } = summarize(mixed);
     expect(rows.email1).toEqual({ views: 2, taps: 1, mobile: 1, desktop: 1 });
     expect(rows.email2).toEqual({ views: 1, taps: 0, mobile: 1, desktop: 0 });
