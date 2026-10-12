@@ -6,6 +6,7 @@ import { stageRouter } from "./routes/stage";
 import { pagesRouter } from "./routes/pages";
 import { listingPageRouter } from "./routes/listing-page";
 import { renderDemoPage, serveDemoImage, serveDemoFont } from "./routes/demo-page";
+import { demoGoRouter, logDemoView } from "./routes/demo-events";
 import { smartleadRouter } from "./routes/webhook-smartlead";
 import { logger } from "hono/logger";
 
@@ -46,19 +47,22 @@ app.route("/api/stage", stageRouter);
 app.route("/api/smartlead", smartleadRouter); // POST /api/smartlead/reply
 app.get("/demo", async (c) => {
   const base = new URL(c.req.url).origin.replace(/^http:\/\/(?!localhost)/, "https://");
+  logDemoView(c, "/demo");
   c.header("Cache-Control", "public, max-age=300");
-  return c.html(renderDemoPage(base));
+  return c.html(renderDemoPage(base, c.req.query("ct")));
 });
 // Bare demo host: https://demo.stagewell.app/ (cold-email CTA) serves the demo at the root.
 // Every other host falls through, so `/` stays a 404 there exactly as before.
 app.get("/", async (c, next) => {
   if (!isDemoHost(c.req.header("x-forwarded-host") ?? c.req.header("host"))) return next();
   const base = new URL(c.req.url).origin.replace(/^http:\/\/(?!localhost)/, "https://");
+  logDemoView(c, "/");
   c.header("Cache-Control", "public, max-age=300");
-  return c.html(renderDemoPage(base));
+  return c.html(renderDemoPage(base, c.req.query("ct")));
 });
 app.get("/demo/img/:file", (c) => serveDemoImage(c.req.param("file")));
 app.get("/demo/fonts/:file", (c) => serveDemoFont(c.req.param("file")));
+app.route("/go", demoGoRouter); // demo CTA: GET = no-JS redirect to the App Store, POST = sendBeacon tap count
 app.route("/l", listingPageRouter); // GET /l/:listingId — public shareable listing page
 app.route("/", pagesRouter); // GET /privacy, GET /terms, GET /contact
 

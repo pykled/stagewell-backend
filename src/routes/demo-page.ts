@@ -10,11 +10,15 @@
  * `images` table here: it holds customers' private listing photos and this
  * page is public.
  *
- * ?ct=email1..4 on the inbound URL is Smartlead's campaign tag; the page does
- * not read it, it only has to keep rendering with it present.
+ * ?ct=email1..4 on the inbound URL is Smartlead's campaign tag. It only feeds
+ * measurement (demo-events.ts): the normalised step is carried on the CTA
+ * links so a tap is counted against the email that brought the visitor.
  */
 
-export const APP_STORE_URL = "https://apps.apple.com/us/app/stagewell/id6757572170";
+import { APP_STORE_URL, STORE_HREF, normalizeCt } from "./demo-events";
+import type { DemoCta } from "./demo-events";
+
+export { APP_STORE_URL };
 
 interface DemoPair {
   slug: string; // public/demo/{slug}-before.jpg + {slug}-after.jpg
@@ -328,6 +332,19 @@ const JS = `
       first.observe(boxes[0]);
     } else { boxes[0].hintOnce(); }
   }
+
+  // CTA: go straight to the App Store and count the tap with a beacon, so the
+  // tap never waits on us. Without sendBeacon the /go redirect href stays.
+  if (navigator.sendBeacon) {
+    var ctas = document.querySelectorAll("a[data-cta]");
+    for (var k = 0; k < ctas.length; k++) (function (a) {
+      var go = a.getAttribute("href");
+      a.setAttribute("href", ${JSON.stringify(STORE_HREF)});
+      function ping() { try { navigator.sendBeacon(go); } catch (e) {} }
+      a.addEventListener("click", ping);
+      a.addEventListener("auxclick", function (e) { if (e.button === 1) ping(); });
+    })(ctas[k]);
+  }
 })();
 `;
 
@@ -353,8 +370,20 @@ function figure(p: DemoPair, index: number): string {
 </figure>`;
 }
 
-export function renderDemoPage(base: string): string {
+/**
+ * CTA anchors point at /go (counts the tap, then 302s to the App Store) so they
+ * work without JS; the page script swaps them to the App Store URL and counts
+ * via sendBeacon instead. The step is the normalised enum, never raw input.
+ */
+function ctaAttrs(rawCt: string | undefined, which: DemoCta): string {
+  const step = normalizeCt(rawCt);
+  const q = step === "none" ? `cta=${which}` : `ct=${step}&amp;cta=${which}`;
+  return `href="/go?${q}" data-cta`;
+}
+
+export function renderDemoPage(base: string, rawCt?: string): string {
   const [first, ...rest] = DEMO_PAIRS;
+  const cta = (which: DemoCta) => ctaAttrs(rawCt, which);
   const title = "Stagewell · Virtual staging from a phone photo";
   const description = "Photograph an empty room, pick a style, and get a furnished, listing-ready photo back in about a minute. Three real before-and-after examples.";
   const url = `${base}/`;
@@ -388,7 +417,7 @@ export function renderDemoPage(base: string): string {
 <div class="wrap">
   <header class="top">
     <a class="wordmark" href="/">Stagewell</a>
-    <a class="top-link" href="${APP_STORE_URL}?ct=demo">Free on the App Store</a>
+    <a class="top-link" ${cta("top")}>Free on the App Store</a>
   </header>
   <main>
 
@@ -399,7 +428,7 @@ export function renderDemoPage(base: string): string {
     </div>
     <div>
       <p class="lede">Photograph the empty room, pick a style, and get a furnished, listing-ready photo back in about a minute. No photographer, no furniture rental.</p>
-      <a class="btn" href="${APP_STORE_URL}?ct=demo">${APPLE}Get Stagewell on the App Store</a>
+      <a class="btn" ${cta("hero")}>${APPLE}Get Stagewell on the App Store</a>
       <p class="fine">Your first 3 stagings are free. No card required.</p>
     </div>
   </section>
@@ -447,7 +476,7 @@ export function renderDemoPage(base: string): string {
         <p class="from">Built by Dillon Djie, a licensed California agent, for his own listings.</p>
       </div>
       <div class="close-cta">
-        <a class="btn" href="${APP_STORE_URL}?ct=demo">${APPLE}Get Stagewell on the App Store</a>
+        <a class="btn" ${cta("close")}>${APPLE}Get Stagewell on the App Store</a>
         <p class="fine">Free to download on the App Store.</p>
       </div>
     </div>

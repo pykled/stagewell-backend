@@ -20,6 +20,7 @@ import { getSupabaseAdmin } from "../lib/supabase-admin";
 import { isUuid } from "../lib/storage";
 import { env } from "../env";
 import { renderDemoPage } from "./demo-page";
+import { logDemoView } from "./demo-events";
 
 const SIGNED_URL_TTL_S = 60 * 60;
 const IMAGE_ID_RE = /^[A-Za-z0-9-]{1,100}$/;
@@ -173,8 +174,9 @@ const listingPageRouter = new Hono();
 
 listingPageRouter.get("/demo", (c) => {
   const base = new URL(c.req.url).origin.replace(/^http:\/\/(?!localhost)/, "https://");
+  logDemoView(c, "/l/demo");
   c.header("Cache-Control", "public, max-age=300");
-  return c.html(renderDemoPage(base));
+  return c.html(renderDemoPage(base, c.req.query("ct")));
 });
 
 listingPageRouter.get("/:listingId", async (c) => {
