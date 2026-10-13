@@ -15,11 +15,17 @@ function req(path: string, init: { method?: string; headers?: Record<string, str
 
 let lines: string[] = [];
 let spy: ReturnType<typeof spyOn>;
+const shellPt = process.env.STAGEWELL_APPLE_PT;
 beforeEach(() => {
+  delete process.env.STAGEWELL_APPLE_PT; // tests opt in; a dev/CI shell export must not change the old-URL expectations
   lines = [];
   spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => { lines.push(a.map(String).join(" ")); });
 });
-afterEach(() => spy.mockRestore());
+afterEach(() => {
+  spy.mockRestore();
+  if (shellPt === undefined) delete process.env.STAGEWELL_APPLE_PT;
+  else process.env.STAGEWELL_APPLE_PT = shellPt;
+});
 
 /** Only our structured lines (hono/logger also writes through console.log). */
 const events = () => lines.filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
@@ -173,11 +179,6 @@ describe("demo-stats", () => {
 
 describe("Apple campaign attribution (STAGEWELL_APPLE_PT)", () => {
   const PT = "123456789";
-  const prev = process.env.STAGEWELL_APPLE_PT;
-  afterEach(() => {
-    if (prev === undefined) delete process.env.STAGEWELL_APPLE_PT;
-    else process.env.STAGEWELL_APPLE_PT = prev;
-  });
   const ctaTags = (body: string) => [...body.matchAll(/<a [^>]*data-cta[^>]*>/g)].map((m) => m[0]);
   const attr = (tag: string, name: string) => tag.match(new RegExp(` ${name}="([^"]*)"`))![1]!;
   const unesc = (s: string) => s.replace(/&amp;/g, "&");
