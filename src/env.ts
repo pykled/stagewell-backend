@@ -21,6 +21,8 @@ const envSchema = z.object({
   // RevenueCat webhook secret — must match the value configured in the RC dashboard
   // under Project Settings → Webhooks → Authorization header.
   REVENUECAT_WEBHOOK_SECRET: z.string().optional(),
+  /** "true" lets SANDBOX events change profiles/credits; otherwise they are only recorded. */
+  REVENUECAT_PROCESS_SANDBOX: z.string().optional(),
 
   // Google Gemini — server-side image generation for POST /api/stage.
   // The key must never be shipped in the app bundle again.
