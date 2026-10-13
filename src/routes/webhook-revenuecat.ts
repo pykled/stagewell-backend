@@ -454,7 +454,8 @@ async function processEvent(
       .update({
         plan:                    tier,
         subscription_product_id: productId,
-        subscription_expires_at: isoOrNull(eventExpiryMs),
+        // A malformed expiry keeps the stored one so the ordering guard stays armed.
+        subscription_expires_at: eventExpiryMs !== null ? isoOrNull(eventExpiryMs) : (profile?.subscription_expires_at ?? null),
         subscription_will_renew: true,
         subscription_updated_at: now,
       })
@@ -511,7 +512,10 @@ async function processEvent(
       .update({
         plan:                    "free",
         subscription_product_id: null,
-        subscription_expires_at: isoOrNull(eventExpiryMs),
+        // Keep the later of the two so a retried RENEWAL for a refunded period stays stale.
+        subscription_expires_at: isoOrNull(
+          eventExpiryMs !== null && currentExpiryMs !== null ? Math.max(eventExpiryMs, currentExpiryMs) : (eventExpiryMs ?? currentExpiryMs),
+        ),
         subscription_will_renew: false,
         subscription_updated_at: now,
       })

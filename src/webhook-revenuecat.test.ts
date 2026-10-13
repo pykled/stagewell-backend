@@ -336,6 +336,26 @@ describe("subscription lifecycle", () => {
     expect(db.profile(USER)!.plan).toBe("free");
   });
 
+  test("a retried RENEWAL for a refunded period cannot resurrect it", async () => {
+    seedProfile();
+    const end = Date.now() + 30 * DAY;
+    await post(ev({ type: "INITIAL_PURCHASE", product_id: "scale_monthly_39", expiration_at_ms: end }));
+    await post(ev({ type: "EXPIRATION", expiration_at_ms: Date.now() - 1000, expiration_reason: "CUSTOMER_SUPPORT" }));
+    expect(db.profile(USER)!.plan).toBe("free");
+    const late = await post(ev({ type: "RENEWAL", product_id: "scale_monthly_39", expiration_at_ms: end }));
+    expect(late.body.outcome).toBe("stale");
+    expect(db.profile(USER)!.plan).toBe("free");
+    const next = await post(ev({ type: "INITIAL_PURCHASE", product_id: "scale_monthly_39", expiration_at_ms: end + 30 * DAY }));
+    expect(next.body.outcome).toBe("active");
+  });
+
+  test("a malformed expiry keeps the stored expiry", async () => {
+    const stored = new Date(Date.now() + 10 * DAY).toISOString();
+    seedProfile({ plan: "professional", subscription_expires_at: stored });
+    await post(ev({ type: "RENEWAL", expiration_at_ms: "soon" as unknown as number }));
+    expect(db.profile(USER)!.subscription_expires_at).toBe(stored);
+  });
+
   test("garbage expiration_at_ms never 500s", async () => {
     seedProfile();
     for (const bad of [1e20, -5, "soon"] as unknown[]) {
