@@ -320,12 +320,40 @@ describe("subscription lifecycle", () => {
     expect(db.rpcs.length).toBe(0);
   });
 
-  test("an old CANCELLATION delivered after a newer RENEWAL is ignored", async () => {
+  test("a CANCELLATION made while a RENEWAL was in retry still applies", async () => {
     seedProfile();
-    await post(ev({ type: "RENEWAL" }));
+    await post(ev({ type: "RENEWAL", event_timestamp_ms: Date.now() - 120_000 }));
     const r = await post(ev({ type: "CANCELLATION", event_timestamp_ms: Date.now() - 60_000 }));
-    expect(r.body.outcome).toBe("stale");
-    expect(db.profile(USER)!.subscription_will_renew).toBe(true);
+    expect(r.body.outcome).toBe("renew_off");
+    expect(db.profile(USER)!.subscription_will_renew).toBe(false);
+  });
+
+  test("refund EXPIRATION (CUSTOMER_SUPPORT) downgrades even mid-period", async () => {
+    seedProfile();
+    await post(ev({ expiration_at_ms: Date.now() + 30 * DAY }));
+    const r = await post(ev({ type: "EXPIRATION", expiration_at_ms: Date.now() - 1000, expiration_reason: "CUSTOMER_SUPPORT" }));
+    expect(r.body.outcome).toBe("expired");
+    expect(db.profile(USER)!.plan).toBe("free");
+  });
+
+  test("garbage expiration_at_ms never 500s", async () => {
+    seedProfile();
+    for (const bad of [1e20, -5, "soon"] as unknown[]) {
+      const r = await post(ev({ type: "RENEWAL", expiration_at_ms: bad as number }));
+      expect(r.status).toBe(200);
+    }
+    const r = await post(ev({ type: "EXPIRATION", expiration_at_ms: 1e20 }));
+    expect(r.status).toBe(200);
+  });
+
+  test("non-string product_id is recorded, not a 500", async () => {
+    seedProfile();
+    for (const type of ["NON_RENEWING_PURCHASE", "RENEWAL"]) {
+      const r = await post(ev({ type, product_id: 10 as unknown as string }));
+      expect(r.status).toBe(200);
+      expect(r.body.ok).toBe(false);
+    }
+    expect(db.rpcs.length).toBe(0);
   });
 
   test("PRODUCT_CHANGE: upgrade applies new_product_id, downgrade waits for RENEWAL", async () => {
@@ -418,6 +446,42 @@ describe("user resolution", () => {
   });
 });
 
+describe("deleted / ambiguous users", () => {
+  test("UUID with no profile (deleted account) → 200 recorded, no RPC, no FK write", async () => {
+    const e = ev({ app_user_id: OTHER, original_app_user_id: OTHER, aliases: [OTHER] });
+    const r = await post(e);
+    expect(r).toEqual({ status: 200, body: { ok: false, reason: "unresolved_user" } });
+    expect(db.event(e.id)!.error).toBe("unresolved_user:no_profile");
+    expect(db.event(e.id)!.user_id).toBeNull();
+    expect(db.rpcs.length).toBe(0);
+  });
+  test("$RCAnonymousID aliased to a deleted account → 200 recorded", async () => {
+    const e = ev({ app_user_id: ANON, original_app_user_id: ANON, aliases: [ANON, OTHER] });
+    expect((await post(e)).status).toBe(200);
+    expect(db.event(e.id)!.error).toBe("unresolved_user:no_profile");
+  });
+  test("two aliased accounts with profiles and an anonymous app_user_id → ambiguous", async () => {
+    seedProfile();
+    db.tables.profiles.push({ user_id: OTHER, plan: "free", subscription_expires_at: null });
+    const e = ev({ app_user_id: ANON, original_app_user_id: ANON, aliases: [ANON, OTHER, USER] });
+    expect((await post(e)).body.reason).toBe("unresolved_user");
+    expect(db.event(e.id)!.error).toBe("unresolved_user:ambiguous_alias");
+    expect(db.rpcs.length).toBe(0);
+  });
+  test("app_user_id with a profile wins over other aliased accounts", async () => {
+    seedProfile();
+    db.tables.profiles.push({ user_id: OTHER, plan: "free", subscription_expires_at: null });
+    await post(ev({ app_user_id: USER, aliases: [OTHER, USER] }));
+    expect(db.profile(USER)!.plan).toBe("professional");
+    expect(db.profile(OTHER)!.plan).toBe("free");
+  });
+  test("uppercase UUID resolves to the lowercase profile", async () => {
+    seedProfile();
+    await post(ev({ app_user_id: USER.toUpperCase(), original_app_user_id: null, aliases: null }));
+    expect(db.profile(USER)!.plan).toBe("professional");
+  });
+});
+
 describe("environments", () => {
   test("SANDBOX is recorded but never mutates by default", async () => {
     seedProfile();
@@ -433,6 +497,24 @@ describe("environments", () => {
     seedProfile();
     await post(ev({ environment: "SANDBOX" }));
     expect(db.profile(USER)!.plan).toBe("professional");
+  });
+  test("missing or odd environment is treated as sandbox", async () => {
+    seedProfile();
+    for (const environment of [undefined, "sandbox", "production", "STAGING"]) {
+      const r = await post(ev({ environment: environment as RCEvent["environment"] }));
+      expect(r.body.sandbox).toBe(true);
+    }
+    expect(db.profile(USER)!.plan).toBe("free");
+  });
+  test("oversized body → 4xx without a DB write (413 when content-length is sent)", async () => {
+    const body = JSON.stringify({ event: { ...ev(), pad: "x".repeat(300 * 1024) } });
+    const send = (headers: Record<string, string>) => app.fetch(new Request("http://localhost/api/webhooks/revenuecat", {
+      method: "POST", headers: { "content-type": "application/json", authorization: SECRET, ...headers }, body,
+    }));
+    expect((await send({ "content-length": String(body.length) })).status).toBe(413);
+    const streamed = (await send({})).status;
+    expect(streamed === 400 || streamed === 413).toBe(true);
+    expect(db.tables.webhook_events.length).toBe(0);
   });
   test("insert failure other than duplicate → 500 so RC retries", async () => {
     db.insertError = { code: "08006", message: "connection failure" };

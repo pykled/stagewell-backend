@@ -31,7 +31,8 @@
  *
  * User resolution:
  *   app_user_id, original_app_user_id and aliases are searched for a Supabase
- *   user UUID; failing that, subscription_claims maps an $RCAnonymousID to a user.
+ *   user UUID that has a profiles row; failing that, subscription_claims maps an
+ *   $RCAnonymousID to a user. Unresolvable events are recorded with 200.
  *
  * Authorization:
  *   RC sends the configured value in the Authorization header. Both the raw
@@ -39,6 +40,7 @@
  */
 
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { env } from "../env";
@@ -115,6 +117,7 @@ export interface RCEvent {
   expiration_at_ms?: number | null;
   grace_period_expiration_at_ms?: number | null;
   event_timestamp_ms?: number | null;
+  expiration_reason?: string | null;
   environment?: "PRODUCTION" | "SANDBOX";
   store?: string;
   period_type?: string;
@@ -130,8 +133,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Explicit table first; substring match kept for renamed SKUs of the same tier.
  * Returns null for an unknown product so it can never silently become professional.
  */
-export function tierFromProductId(productId: string | null | undefined): Tier | null {
-  if (!productId) return null;
+export function tierFromProductId(productId: unknown): Tier | null {
+  if (typeof productId !== "string" || !productId) return null;
   const lower = productId.toLowerCase();
   if (PRODUCT_TIER[lower]) return PRODUCT_TIER[lower];
   if (lower.includes("unlimited"))    return "unlimited";
@@ -140,8 +143,8 @@ export function tierFromProductId(productId: string | null | undefined): Tier | 
   return null;
 }
 
-export function packCreditsFromProductId(productId: string | null | undefined): number | null {
-  if (!productId) return null;
+export function packCreditsFromProductId(productId: unknown): number | null {
+  if (typeof productId !== "string" || !productId) return null;
   return PACK_CREDITS[productId.toLowerCase()] ?? null;
 }
 
@@ -167,54 +170,65 @@ function log(level: "info" | "warn" | "error", step: string, fields: Record<stri
 }
 
 const short = (id: string | null | undefined) =>
-  id ? (UUID_RE.test(id) ? id.slice(0, 8) : id.slice(0, 40).replace(/[0-9a-f]{12,}$/i, "…")) : null;
+  !id ? null : UUID_RE.test(id) ? id.slice(0, 8) : id.startsWith("$RCAnonymousID:") ? "$RCAnonymousID:…" : "other";
 
 type Resolved = { userId: string; via: string } | { userId: null; reason: string };
 
 /**
- * Find the Supabase user for an event.
- *   1. UUID candidates in app_user_id → original_app_user_id → aliases order; the first one with a
- *      profiles row wins (falls back to the first UUID if none has a row yet).
- *   2. Otherwise subscription_claims maps an RC id (e.g. $RCAnonymousID:…) to exactly one user.
+ * Find the Supabase user for an event. Only ids with a profiles row count, so a
+ * deleted account can never reach a uuid FK or an RPC.
+ *   1. A UUID app_user_id with a profile wins (RC's last-seen id).
+ *   2. Otherwise exactly one UUID among original_app_user_id / aliases with a profile.
+ *   3. Otherwise subscription_claims maps an RC id (e.g. $RCAnonymousID:…) to exactly one user.
  */
 async function resolveUser(supabase: SupabaseClient, event: RCEvent): Promise<Resolved> {
+  const str = (x: unknown): x is string => typeof x === "string" && x.length > 0 && x.length <= 200;
   const candidates = [event.app_user_id, event.original_app_user_id, ...(Array.isArray(event.aliases) ? event.aliases : [])]
-    .filter((x): x is string => typeof x === "string" && x.length > 0 && x.length <= 200);
-  const unique = [...new Set(candidates)];
+    .filter(str);
+  const unique = [...new Set(candidates)].slice(0, 50);
   const uuids = [...new Set(unique.filter((x) => UUID_RE.test(x)).map((x) => x.toLowerCase()))];
 
-  const first = uuids[0];
-  if (first !== undefined) {
-    if (uuids.length === 1) return { userId: first, via: "uuid" };
+  if (uuids.length > 0) {
     const { data, error } = await supabase.from("profiles").select("user_id").in("user_id", uuids);
     if (error) throw new Error(`profiles lookup failed: code=${error.code} msg=${error.message}`);
     const have = new Set((data ?? []).map((r: { user_id: string }) => String(r.user_id).toLowerCase()));
-    const hit = uuids.find((u) => have.has(u));
-    return { userId: hit ?? first, via: hit ? "uuid_profile" : "uuid" };
+    const primary = str(event.app_user_id) ? event.app_user_id.toLowerCase() : null;
+    if (primary && have.has(primary)) return { userId: primary, via: "app_user_id" };
+    const hits = uuids.filter((u) => have.has(u));
+    const only = hits[0];
+    if (hits.length === 1 && only !== undefined) return { userId: only, via: "alias" };
+    if (hits.length > 1) return { userId: null, reason: "ambiguous_alias" };
   }
 
-  const others = unique.slice(0, 50);
-  if (others.length === 0) return { userId: null, reason: "no_user_id" };
-  const { data, error } = await supabase
-    .from("subscription_claims")
-    .select("supabase_user_id")
-    .in("rc_app_user_id", others);
-  if (error) throw new Error(`subscription_claims lookup failed: code=${error.code} msg=${error.message}`);
-  const owners = [...new Set((data ?? []).map((r: { supabase_user_id: string }) => String(r.supabase_user_id).toLowerCase()))];
-  const owner = owners[0];
-  if (owners.length === 1 && owner !== undefined && UUID_RE.test(owner)) return { userId: owner, via: "claim" };
-  if (owners.length > 1) return { userId: null, reason: "ambiguous_claim" };
-  return { userId: null, reason: "anonymous_unclaimed" };
+  const others = unique.filter((x) => !UUID_RE.test(x));
+  if (others.length > 0) {
+    const { data, error } = await supabase
+      .from("subscription_claims")
+      .select("supabase_user_id")
+      .in("rc_app_user_id", others);
+    if (error) throw new Error(`subscription_claims lookup failed: code=${error.code} msg=${error.message}`);
+    const owners = [...new Set((data ?? []).map((r: { supabase_user_id: string }) => String(r.supabase_user_id).toLowerCase()))];
+    const owner = owners[0];
+    if (owners.length === 1 && owner !== undefined && UUID_RE.test(owner)) {
+      const { data: prof, error: profErr } = await supabase.from("profiles").select("user_id").eq("user_id", owner).maybeSingle();
+      if (profErr) throw new Error(`profiles lookup failed: code=${profErr.code} msg=${profErr.message}`);
+      if (prof) return { userId: owner, via: "claim" };
+      return { userId: null, reason: "no_profile" };
+    }
+    if (owners.length > 1) return { userId: null, reason: "ambiguous_claim" };
+    if (uuids.length === 0) return { userId: null, reason: "anonymous_unclaimed" };
+  }
+  return { userId: null, reason: uuids.length > 0 ? "no_profile" : "no_user_id" };
 }
 
-const isoOrNull = (ms: number | null | undefined) =>
-  typeof ms === "number" && Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+const isoOrNull = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
 const msOrNull = (iso: string | null | undefined) => {
   if (!iso) return null;
   const t = Date.parse(iso);
   return Number.isFinite(t) ? t : null;
 };
-const finiteMs = (ms: unknown) => (typeof ms === "number" && Number.isFinite(ms) ? ms : null);
+/** Epoch ms within Date's range (RC always sends numbers; anything else is treated as absent). */
+const finiteMs = (ms: unknown) => (typeof ms === "number" && Number.isFinite(ms) && ms > 0 && ms < 8.64e15 ? ms : null);
 
 function fail(step: string, err: { code?: string; message?: string; details?: string | null }) {
   if (err.code === "42P10") {
@@ -245,7 +259,8 @@ export function createRevenuecatWebhookRouter(deps: RevenuecatWebhookDeps = defa
   // GET kept for deployment verification
   router.get("/", (c) => c.text("RevenueCat webhook route is live"));
 
-  router.post("/", async (c) => {
+  // RC payloads are a few KB; anything far larger is not RevenueCat.
+  router.post("/", bodyLimit({ maxSize: 256 * 1024, onError: (c) => c.json({ error: "Payload too large" }, 413) }), async (c) => {
     // ── 1. Verify webhook secret ────────────────────────────────────────────
     const expectedSecret = deps.getSecret();
     if (expectedSecret) {
@@ -275,7 +290,8 @@ export function createRevenuecatWebhookRouter(deps: RevenuecatWebhookDeps = defa
     }
 
     const { id: eventId, type: eventType } = event;
-    const rcEnv = event.environment === "SANDBOX" ? "SANDBOX" : "PRODUCTION";
+    // Only an explicit PRODUCTION event may change state by default.
+    const rcEnv = event.environment === "PRODUCTION" ? "PRODUCTION" : "SANDBOX";
     const base = { event_id: eventId, type: eventType.slice(0, 40), env: rcEnv };
 
     // Acknowledge but ignore event types we don't handle (TEST, TRANSFER, …)
@@ -292,14 +308,14 @@ export function createRevenuecatWebhookRouter(deps: RevenuecatWebhookDeps = defa
     }
 
     // ── 4. Idempotency — insert event_id before mutating any state ──────────
-    //    user_id is only set for a UUID app_user_id so $RCAnonymousID values can
-    //    never raise 22P02 here; it is filled in after resolution.
+    //    user_id is filled in only after resolution confirms a profile row, so an
+    //    $RCAnonymousID (22P02) or a deleted account (FK) can never fail this insert.
     const appUser = typeof event.app_user_id === "string" ? event.app_user_id : null;
     const { error: insertErr } = await supabase.from("webhook_events").insert({
       event_id:    eventId,
       event_type:  eventType,
-      user_id:     appUser && UUID_RE.test(appUser) ? appUser : null,
-      product_id:  event.new_product_id ?? event.product_id ?? null,
+      user_id:     null,
+      product_id:  [event.new_product_id, event.product_id].find((x) => typeof x === "string")?.slice(0, 200) ?? null,
       environment: rcEnv,
       payload:     event as unknown as Record<string, unknown>,
     });
@@ -354,9 +370,7 @@ export function createRevenuecatWebhookRouter(deps: RevenuecatWebhookDeps = defa
       }
       userId = resolved.userId;
       const ctx = { ...base, user: short(userId), via: resolved.via };
-      if (resolved.via !== "uuid" || appUser?.toLowerCase() !== userId) {
-        await supabase.from("webhook_events").update({ user_id: userId }).eq("event_id", eventId);
-      }
+      await supabase.from("webhook_events").update({ user_id: userId }).eq("event_id", eventId);
 
       const result = await processEvent(supabase, event, userId, ctx);
       if (result.error) {
@@ -395,7 +409,7 @@ async function processEvent(
     const credits = packCreditsFromProductId(event.product_id);
     if (!credits) return { error: `unknown_pack_product:${String(event.product_id ?? "").slice(0, 60)}` };
     const { data, error } = await supabase.rpc("grant_credit_pack", {
-      p_user_id: userId, p_credits: credits, p_event_id: eventId, p_product_id: event.product_id,
+      p_user_id: userId, p_credits: credits, p_event_id: eventId, p_product_id: String(event.product_id),
     });
     if (error) throw fail("grant_credit_pack", error);
     log("info", "pack_granted", { ...ctx, credits, granted: (data as { granted?: boolean } | null)?.granted ?? null });
@@ -405,25 +419,23 @@ async function processEvent(
   // Current profile state, needed by every subscription branch.
   const { data: profile, error: readErr } = await supabase
     .from("profiles")
-    .select("plan, subscription_expires_at, subscription_updated_at")
+    .select("plan, subscription_expires_at")
     .eq("user_id", userId)
     .maybeSingle();
   if (readErr) throw fail("read_profile", readErr);
   const prevTier = String(profile?.plan ?? "free");
   const currentExpiryMs = msOrNull(profile?.subscription_expires_at as string | null | undefined);
-  const lastUpdateMs = msOrNull(profile?.subscription_updated_at as string | null | undefined);
   const eventExpiryMs = finiteMs(event.expiration_at_ms);
-  const eventTsMs = finiteMs(event.event_timestamp_ms);
 
   // ── INITIAL_PURCHASE / RENEWAL / upgrade PRODUCT_CHANGE ───────────────────
   if (ACTIVE_EVENTS.has(type) || CHANGE_EVENTS.has(type)) {
-    let productId = event.product_id ?? null;
+    let productId = typeof event.product_id === "string" ? event.product_id : null;
     if (CHANGE_EVENTS.has(type)) {
       // product_id is the OLD product; new_product_id is where the user is going.
       const next = tierFromProductId(event.new_product_id);
       if (!next) return { error: `unknown_product:${String(event.new_product_id ?? "").slice(0, 60)}` };
       if ((TIER_RANK[next] ?? 0) <= (TIER_RANK[prevTier] ?? 0)) return { outcome: "change_deferred" };
-      productId = event.new_product_id ?? null;
+      productId = typeof event.new_product_id === "string" ? event.new_product_id : null;
     }
 
     const tier = tierFromProductId(productId);
@@ -474,10 +486,9 @@ async function processEvent(
 
   // ── CANCELLATION / BILLING_ISSUE / UNCANCELLATION — renewal flag only ─────
   if (RENEW_OFF_EVENTS.has(type) || RENEW_ON_EVENTS.has(type)) {
-    // An older event must not undo a state written by a newer one.
-    if (eventTsMs !== null && lastUpdateMs !== null && eventTsMs < lastUpdateMs) {
-      return { outcome: "stale" };
-    }
+    // No ordering guard: subscription_updated_at is our processing clock, not RC's
+    // event clock, so comparing them drops real cancellations. will_renew is
+    // informational (nothing reads it); the next RENEWAL/EXPIRATION corrects it.
     const willRenew = RENEW_ON_EVENTS.has(type);
     const { error } = await supabase
       .from("profiles")
@@ -489,8 +500,10 @@ async function processEvent(
 
   // ── EXPIRATION — subscription ended, downgrade to free ───────────────────
   if (INACTIVE_EVENTS.has(type)) {
-    // A later period (renewal or re-purchase delivered first) wins.
-    if (eventExpiryMs !== null && currentExpiryMs !== null && currentExpiryMs > eventExpiryMs) {
+    // A later period (renewal or re-purchase delivered first) wins — except a
+    // refund/revocation (expiration_reason CUSTOMER_SUPPORT), which ends access now.
+    const refund = event.expiration_reason === "CUSTOMER_SUPPORT";
+    if (!refund && eventExpiryMs !== null && currentExpiryMs !== null && currentExpiryMs > eventExpiryMs) {
       return { outcome: "stale" };
     }
     const { error: profileErr } = await supabase
