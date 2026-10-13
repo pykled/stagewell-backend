@@ -15,7 +15,7 @@
  * links so a tap is counted against the email that brought the visitor.
  */
 
-import { APP_STORE_URL, STORE_HREF, normalizeCt } from "./demo-events";
+import { APP_STORE_URL, STORE_HREF, normalizeCt, storeHref } from "./demo-events";
 import type { DemoCta } from "./demo-events";
 
 export { APP_STORE_URL };
@@ -339,7 +339,7 @@ const JS = `
     var ctas = document.querySelectorAll("a[data-cta]");
     for (var k = 0; k < ctas.length; k++) (function (a) {
       var go = a.getAttribute("href");
-      a.setAttribute("href", ${JSON.stringify(STORE_HREF)});
+      a.setAttribute("href", a.getAttribute("data-store") || ${JSON.stringify(STORE_HREF)});
       function ping() { try { navigator.sendBeacon(go); } catch (e) {} }
       a.addEventListener("click", ping);
       a.addEventListener("auxclick", function (e) { if (e.button === 1) ping(); });
@@ -374,11 +374,13 @@ function figure(p: DemoPair, index: number): string {
  * CTA anchors point at /go (counts the tap, then 302s to the App Store) so they
  * work without JS; the page script swaps them to the App Store URL and counts
  * via sendBeacon instead. The step is the normalised enum, never raw input.
+ * data-store is the per-step App Store URL the script swaps in (carries Apple
+ * campaign params when STAGEWELL_APPLE_PT is set; /go redirects to the same).
  */
 function ctaAttrs(rawCt: string | undefined, which: DemoCta): string {
   const step = normalizeCt(rawCt);
   const q = step === "none" ? `cta=${which}` : `ct=${step}&amp;cta=${which}`;
-  return `href="/go?${q}" data-cta`;
+  return `href="/go?${q}" data-cta data-store="${esc(storeHref(step))}"`;
 }
 
 export function renderDemoPage(base: string, rawCt?: string): string {

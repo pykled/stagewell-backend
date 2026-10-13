@@ -11,12 +11,39 @@
  *    the App Store;
  *  - JS: the page swaps the href to the App Store URL itself (no redirect hop)
  *    and fires navigator.sendBeacon(POST /go?ct=..&cta=..) on click.
- * /go only ever redirects to the fixed App Store URL, never to a parameter.
+ * /go only ever redirects to the fixed App Store URL, never to a parameter
+ * (Apple campaign params are built from the normalised step, see storeHref).
  */
 import { Hono } from "hono";
 import type { Context } from "hono";
 export const APP_STORE_URL = "https://apps.apple.com/us/app/stagewell/id6757572170";
 export const STORE_HREF = `${APP_STORE_URL}?ct=demo`;
+
+/**
+ * App Store Connect campaign attribution (App Analytics > Campaigns). Apple only
+ * attributes a download when the link carries `pt` (the developer account's
+ * provider token) and `ct` (campaign token, <= 40 chars). The provider token is
+ * not exposed by the ASC API, so it comes from STAGEWELL_APPLE_PT, read per
+ * request. Unset or not a plain number: links stay exactly STORE_HREF.
+ */
+const PT_RE = /^[0-9]{1,20}$/;
+
+export function applePt(): string | null {
+  const v = (process.env.STAGEWELL_APPLE_PT ?? "").trim();
+  return PT_RE.test(v) ? v : null;
+}
+
+/** demo_<step>; the step is already an enum, the sanitise + cap is belt and braces. */
+export function campaignToken(step: DemoStep): string {
+  return `demo_${step}`.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40);
+}
+
+/** App Store URL for a CTA tap from this email step. Host is always APP_STORE_URL's. */
+export function storeHref(step: DemoStep): string {
+  const pt = applePt();
+  if (!pt) return STORE_HREF;
+  return `${APP_STORE_URL}?pt=${pt}&ct=${campaignToken(step)}&mt=8`;
+}
 
 export type DemoStep = "email1" | "email2" | "email3" | "email4" | "none" | "other";
 export type DemoCta = "top" | "hero" | "close" | "other";
@@ -97,7 +124,7 @@ demoGoRouter.get("/", (c) => {
   if (c.req.method === "GET") logTap(c, "redirect");
   c.header("Cache-Control", "no-store");
   c.header("X-Robots-Tag", "noindex, nofollow");
-  return c.redirect(STORE_HREF, 302);
+  return c.redirect(storeHref(normalizeCt(c.req.query("ct"))), 302);
 });
 
 // sendBeacon path. Body is ignored (never read); the answer is empty.

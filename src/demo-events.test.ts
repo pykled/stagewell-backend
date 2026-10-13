@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import server from "./index";
-import { classifyUa, normalizeCt, normalizeCta, STORE_HREF } from "./routes/demo-events";
+import { APP_STORE_URL, applePt, campaignToken, classifyUa, normalizeCt, normalizeCta, storeHref, STORE_HREF } from "./routes/demo-events";
 import { parseEvent, summarize } from "../scripts/demo-stats";
 
 const RAILWAY = "stagewell-backend-production.up.railway.app";
@@ -168,5 +168,78 @@ describe("demo-stats", () => {
     expect(bots).toBe(1);
     expect(summarize(mixed, { bots: true }).rows.email2!.views).toBe(2);
     expect(summarize(mixed, { since: "2999-01-01" }).total).toBe(0);
+  });
+});
+
+describe("Apple campaign attribution (STAGEWELL_APPLE_PT)", () => {
+  const PT = "123456789";
+  const prev = process.env.STAGEWELL_APPLE_PT;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.STAGEWELL_APPLE_PT;
+    else process.env.STAGEWELL_APPLE_PT = prev;
+  });
+  const ctaTags = (body: string) => [...body.matchAll(/<a [^>]*data-cta[^>]*>/g)].map((m) => m[0]);
+  const attr = (tag: string, name: string) => tag.match(new RegExp(` ${name}="([^"]*)"`))![1]!;
+  const unesc = (s: string) => s.replace(/&amp;/g, "&");
+
+  test("unset or invalid pt: /go and data-store are exactly the current URL", async () => {
+    for (const v of [undefined, "", "  ", "abc", "12a", "-1", "1".repeat(21), "123&ct=x", "123\r\nX-Evil: 1", "https://evil.com"]) {
+      if (v === undefined) delete process.env.STAGEWELL_APPLE_PT;
+      else process.env.STAGEWELL_APPLE_PT = v;
+      expect(applePt()).toBeNull();
+      expect(storeHref("email1")).toBe(STORE);
+      expect((await req("/go?ct=email1&cta=hero")).headers.get("location")).toBe(STORE);
+      const tags = ctaTags(await (await req("/?ct=email2")).text());
+      expect(tags.length).toBe(3);
+      for (const t of tags) expect(unesc(attr(t, "data-store"))).toBe(STORE);
+    }
+  });
+
+  test("pt set: /go carries pt, ct=demo_<step>, mt=8 for every known step", async () => {
+    process.env.STAGEWELL_APPLE_PT = ` ${PT} `;
+    for (const [q, step] of [["email1", "email1"], ["EMAIL4", "email4"], ["", "none"], ["nope", "other"]] as const) {
+      const res = await req(`/go?ct=${q}&cta=hero`);
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe(`${APP_STORE_URL}?pt=${PT}&ct=demo_${step}&mt=8`);
+    }
+    expect(events().map((e) => e.ct)).toEqual(["email1", "email4", "none", "other"]);
+  });
+
+  test("pt set: page CTAs keep the /go href and carry the same App Store URL for the JS swap", async () => {
+    process.env.STAGEWELL_APPLE_PT = PT;
+    const body = await (await req("/?ct=email3")).text();
+    const tags = ctaTags(body);
+    expect(tags.map((t) => attr(t, "href"))).toEqual(["/go?ct=email3&amp;cta=top", "/go?ct=email3&amp;cta=hero", "/go?ct=email3&amp;cta=close"]);
+    for (const t of tags) {
+      expect(attr(t, "data-store")).toBe(`${APP_STORE_URL}?pt=${PT}&amp;ct=demo_email3&amp;mt=8`);
+      expect((await req(unesc(attr(t, "href")))).headers.get("location")).toBe(unesc(attr(t, "data-store")));
+    }
+    expect(body).toContain('a.getAttribute("data-store")');
+    const none = ctaTags(await (await req("/demo")).text());
+    expect(unesc(attr(none[0]!, "data-store"))).toBe(`${APP_STORE_URL}?pt=${PT}&ct=demo_none&mt=8`);
+  });
+
+  test("hostile / oversized ct never leaks into the URL; host is always apps.apple.com", async () => {
+    process.env.STAGEWELL_APPLE_PT = PT;
+    const hostile = ["https://evil.com", "//evil.com", "email1%0d%0aSet-Cookie:%20x=1", "email1&pt=999", "email1%26mt%3D1", "<script>", "x".repeat(8000), "email5", "email1 email2"];
+    for (const h of hostile) {
+      const res = await req(`/go?ct=${h}&cta=top`);
+      const loc = res.headers.get("location")!;
+      expect(new URL(loc).host).toBe("apps.apple.com");
+      const want = h === "email1&pt=999" ? "demo_email1" : "demo_other"; // that one is ct=email1 plus a separate pt param
+      expect(loc).toBe(`${APP_STORE_URL}?pt=${PT}&ct=${want}&mt=8`);
+      expect(res.headers.get("set-cookie")).toBeNull();
+      const tags = ctaTags(await (await req(`/?ct=${h}`)).text());
+      for (const t of tags) expect(unesc(attr(t, "data-store"))).toBe(loc);
+    }
+  });
+
+  test("campaign token: sanitised and capped at 40", () => {
+    for (const s of ["email1", "email2", "email3", "email4", "none", "other"] as const) {
+      expect(campaignToken(s)).toBe(`demo_${s}`);
+    }
+    const odd = campaignToken(("A&B=c/" + "z".repeat(60)) as never);
+    expect(odd).toMatch(/^[a-z0-9_-]{1,40}$/);
+    expect(odd.length).toBe(40);
   });
 });
