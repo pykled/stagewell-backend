@@ -53,7 +53,7 @@ const privacy = page(
 <ul>
   <li><strong>Account information.</strong> Your email address and a password hash, or your Apple ID token if you use Sign in with Apple. Stored with our authentication provider (Supabase).</li>
   <li><strong>Photos you choose to stage.</strong> When you tap "Stage", the photo you selected is sent to our servers and to Google's Gemini API to generate the staged image. We do not access your photo library beyond the photos you pick.</li>
-  <li><strong>Staged images and originals.</strong> If you are signed in, staged images and their originals are stored in our cloud storage so they can be restored on another device. Free accounts are retained for 90 days; paid accounts for as long as the subscription is active.</li>
+  <li><strong>Staged images and originals.</strong> If you are signed in, staged images and their originals are stored in our cloud storage so they can be restored on another device. They are kept in your account until you delete them or delete your account.</li>
   <li><strong>Purchase information.</strong> Subscription status is processed by Apple and RevenueCat. We never see your payment card.</li>
   <li><strong>Usage and diagnostics.</strong> Credit usage, generation success/failure and basic device information needed to operate the service and to investigate problems.</li>
   <li><strong>Marketing preference.</strong> Whether you opted in to product emails. You can change this at any time from the Account tab.</li>
